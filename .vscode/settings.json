@@ -1,0 +1,11 @@
+{
+    "terminal.integrated.env.osx": {
+        "PATH": "/Users/tobiaspinfold/.platformio/penv/bin:/Users/tobiaspinfold/.platformio/penv:/Users/tobiaspinfold/.jenv/shims:/Users/tobiaspinfold/.jenv/bin:/Users/tobiaspinfold/Documents/flutter/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "PLATFORMIO_CALLER": "vscode"
+    },
+    "C_Cpp.errorSquiggles": "Disabled",
+    "files.associations": {
+        "iostream": "cpp",
+        "*.tcc": "cpp"
+    }
+}
