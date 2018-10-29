@@ -2,6 +2,8 @@
 #include <EthernetInterface.h>
 #include <LM75B.h>
 #include <C12832.h>
+#include "rtos.h"
+#include <mbed_events.h>
 
 #define SW2_VAL 1
 #define SW3_VAL 2
@@ -10,6 +12,9 @@
 #define JOSYTICK_LEFT_VAL 16
 #define JOYSTICK_RIGHT_VAL 32
 #define JOYSTICK_FIRE_VAL 64
+
+Thread tickerThread;
+EventQueue tickerQueue(EVENTS_EVENT_SIZE);
 
 C12832 lcd(D11, D13, D12, D7, D10);
 LM75B temperatureSensor(PTE25, PTE24);
@@ -24,7 +29,7 @@ InterruptIn joystickRight(A5);
 InterruptIn joystickFire(D4);
 
 volatile uint8_t buttonsPressed = 0;
-volatile uint8_t sequenceNumber = 1;
+volatile uint8_t sequenceNumber = 0;
 
 bool sw2Pressed = false;
 bool sw3Pressed = false;
@@ -102,3 +107,5 @@ void onJoystickFirePressed()
 {
     joystickFirePressed = true;
 }
+
+uint8_t ccittLookup(uint64_t packet);

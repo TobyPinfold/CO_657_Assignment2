@@ -5,8 +5,6 @@ int main()
 {
     connectEthernet(eth);
 
-    sendTemperatureUpdate();
-
     sw2.fall(&onSW2Pressed);
     sw3.fall(&onSW3Pressed);
     joystickDown.fall(&onJoystickDownPressed);
@@ -14,6 +12,15 @@ int main()
     joystickLeft.fall(&onJoystickLeftPressed);
     joystickRight.fall(&onJoystickRightPressed);
     joystickFire.fall(&onJoystickFirePressed);
+
+    tickerThread.start(&tickerQueue, &EventQueue::dispatch_forever);
+    tickerQueue.call_every(10000, &sendTemperatureUpdate);
+    tickerQueue.dispatch();
+
+    while (true)
+    {
+        sleep();
+    }
 }
 
 void sendTemperatureUpdate()
@@ -21,23 +28,27 @@ void sendTemperatureUpdate()
     PACKET packet;
     setSenderID(packet, 21486);
     setSequenceNumber(packet);
-    setPacketOptions(packet, false, false, true);
+
+    if (packet.sequenceNumber % 10 == 0)
+    {
+        setPacketOptions(packet, false, false, true);
+    }
+    else
+    {
+        setPacketOptions(packet, false, false, false);
+    }
     setTemperature(packet);
+
     setButtonPresses(packet);
     generateChecksum(packet);
     uint64_t builtPacket = buildPacket(packet);
-    lcd.cls();
-    lcd.printf("Built %llX", builtPacket);
     sendPacket(eth, builtPacket);
+    clearPressedButtons();
 }
 
 void connectEthernet(EthernetInterface eth)
 {
-    lcd.printf("trying to connect %s \n", eth.get_ip_address());
     eth.connect();
-    lcd.locate(0, 0);
-    lcd.printf("IP Address is %s \n", eth.get_ip_address());
-    wait_ms(2000);
 }
 
 void setSenderID(PACKET &packet, uint16_t id)
@@ -62,7 +73,6 @@ void setPacketOptions(PACKET &packet, bool retryFlag, bool ccittFlag, bool ackRe
         tempPacketOptions += 2;
     if (ackRequestFlag)
         tempPacketOptions += 1;
-    lcd.printf("%x", tempPacketOptions);
     packet.packetOptions = tempPacketOptions;
 }
 
@@ -79,6 +89,8 @@ void setButtonPresses(PACKET &packet)
         buttonsPressed += JOYSTICK_UP_VAL;
     if (joystickLeftPressed)
         buttonsPressed += JOSYTICK_LEFT_VAL;
+    if (joystickRightPressed)
+        buttonsPressed += JOYSTICK_RIGHT_VAL;
     if (joystickFirePressed)
         buttonsPressed += JOYSTICK_FIRE_VAL;
 
@@ -123,19 +135,7 @@ void sendPacket(EthernetInterface eth, uint64_t packet)
     UDPSocket sock(&eth);
     SocketAddress sockAddr;
 
-    lcd.cls();
-    lcd.locate(0, 0);
-    lcd.printf("%llx", packet);
     int status = sock.sendto("lora.kent.ac.uk", 1789, &packet, sizeof(uint64_t));
-    if (0 > status)
-    {
-        lcd.printf("Error sending data\n %n", status);
-    }
-    else
-    {
-        lcd.printf("sent? %n", status);
-    }
-    clearPressedButtons();
 }
 
 uint64_t buildPacket(PACKET packet)
@@ -147,4 +147,19 @@ uint64_t buildPacket(PACKET packet)
             ((packet.packetOptions & 0xFFFFFFFFFFFFFFFF) << 24) |
             ((packet.sequenceNumber & 0xFFFFFFFFFFFFFFFF) << 16) |
             (packet.senderID & 0xFFFFFFFFFFFFFFFF));
+}
+
+uint8_t ccittLookup(uint64_t packet)
+{
+    uint8_t *packetPtr = (uint8_t *)packet;
+    uint8_t *index = (uint8_t *)packet;
+    uint8_t checksum = 0;
+
+    while (index < (packetPtr + sizeof(packet)))
+    {
+        checksum = Table_CRC_8bit_CCITT[*index ^ checksum];
+        index++;
+    }
+
+    return checksum;
 }
