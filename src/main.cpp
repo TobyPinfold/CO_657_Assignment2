@@ -2,7 +2,7 @@
 #include <main.h>
 
 bool useCCITT = true;
-bool retryflag = false;
+volatile bool retryflag = false;
 
 PACKET packet;
 SocketAddress socketAddress;
@@ -22,65 +22,68 @@ int main()
 
     temperaturePollingThread.start(callback(&temperaturePollingQueue, &EventQueue::dispatch_forever));
     temperaturePollingQueue.call_every(10000, &sendTemperatureUpdate);
-
-}
+    // sendTemperatureUpdate();
+}   
 
 
 void sendTemperatureUpdate()
 {
+    UDPSocket sock(&eth);
+    sock.set_timeout(2000);
+
+     if((sequenceNumber % 10 == 0) || retryflag) {
+        acknowledgeFlag = true;
+    } else {
+        acknowledgeFlag = false;
+    }
+
+    uint32_t response = 0x0000000000000000;
+    
     if(!retryflag) {
          
+        sequenceNumber++;
         setSenderID(21486);
         setSequenceNumber();
-
-        if(sequenceNumber % 10 == 0) {
-
-            setPacketOptions(retryflag, useCCITT, true);
-
-        }
-        else {
-            setPacketOptions(retryflag, useCCITT, false);
-        }
-
         setTemperature();
-
         setButtonPresses();
     
+    } else {
 
-        if(useCCITT) {
-            generateCCITTChecksum();
+        temperaturePollingThread.wait(1000 * (std::pow(retryCount, 2)));
+    }
+      
+    setPacketOptions(retryflag, useCCITT, acknowledgeFlag);
+        
+    if(useCCITT) {
+        generateCCITTChecksum();
+    } else {
+         generateChecksum();
+    }
+
+    uint64_t builtPacket = buildPacket();
+    sock.sendto("lora.kent.ac.uk", 1789, &builtPacket, sizeof(uint64_t));
+
+    if(acknowledgeFlag) {
+            
+        nsapi_size_or_error_t status = sock.recvfrom(&socketAddress, &response, sizeof(response));
+       
+        response = 0x0000000000000000 | (response >> 16);
+        
+        if((response != sequenceNumber) || (status < 0)) {
+                
+            retryflag = true;
+            retryCount++;
+
         } else {
-            generateChecksum();
+                
+            retryCount = 0;
+            retryflag = false;
+            clearPressedButtons();
         }
-
-        if(acknowledgeFlag) {
-            watchAcknowledgement(sequenceNumber);
-        }
-
-        uint64_t builtPacket = buildPacket();
-        sendPacket(eth, builtPacket);
+    } else {
         clearPressedButtons();
-    
-    }  else {
-
-        retry();
-    
     }
 }
-
-
-void watchAcknowledgement(uint8_t sequenceNumber) {
-    UDPSocket sock(&eth);
-
-    uint32_t response;
-    
-    sock.recvfrom(&socketAddress, &response, sizeof(response));
-    
-    while(response = NULL) {
-        Thread::wait(10);
-    }
-}
-
 
 
 void retry () {
@@ -113,7 +116,7 @@ void setSequenceNumber()
     if (sequenceNumber >= 254)
         sequenceNumber = 0;
 
-    packet.sequenceNumber = sequenceNumber++;
+    packet.sequenceNumber = sequenceNumber;
 }
 
 
@@ -218,7 +221,6 @@ void generateChecksum()
 void sendPacket(EthernetInterface eth, uint64_t packet)
 {
     UDPSocket sock(&eth);
-    sock.sendto("lora.kent.ac.uk", 1789, &packet, sizeof(uint64_t));
 }
 
 
