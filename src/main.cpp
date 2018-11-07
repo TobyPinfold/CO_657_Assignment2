@@ -6,6 +6,7 @@ bool retryflag = false;
 
 PACKET packet;
 SocketAddress socketAddress;
+volatile bool acknowledgeFlag = false;
 
 int main()
 {
@@ -19,37 +20,27 @@ int main()
     joystickRight.fall(&onJoystickRightPressed);
     joystickFire.fall(&onJoystickFirePressed);
 
-    temperaturePollingThread.start(&temperaturePollingQueue, &EventQueue::dispatch_forever);
+    temperaturePollingThread.start(callback(&temperaturePollingQueue, &EventQueue::dispatch_forever));
     temperaturePollingQueue.call_every(10000, &sendTemperatureUpdate);
-    temperaturePollingQueue.dispatch();
 
-    acknowlegmentThread.start(&acknowlegmentQueue, &EventQueue::dispatch_forever);
-    acknowlegmentQueue.call_every(1000, &setAcknowledgementFlag);
-    acknowlegmentQueue.dispatch();
-
-    while (true)
-    {
-        sleep();
-    }
-}
-
-void setAcknowledgementFlag() {
-    acknowledgeFlag = true;
 }
 
 
 void sendTemperatureUpdate()
 {
-    lcd.cls();
-    lcd.printf("ack flag = %d\n", acknowledgeFlag);
-    wait(2.0);
     if(!retryflag) {
          
         setSenderID(21486);
-    
         setSequenceNumber();
 
-        setPacketOptions(retryflag, useCCITT, acknowledgeFlag);
+        if(sequenceNumber % 10 == 0) {
+
+            setPacketOptions(retryflag, useCCITT, true);
+
+        }
+        else {
+            setPacketOptions(retryflag, useCCITT, false);
+        }
 
         setTemperature();
 

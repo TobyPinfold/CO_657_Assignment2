@@ -33,7 +33,6 @@ InterruptIn joystickFire(D4);
 
 volatile uint8_t buttonsPressed = 0;
 volatile uint8_t sequenceNumber = 0;
-volatile bool acknowledgeFlag = false;
 
 
 bool sw2Pressed = false;
