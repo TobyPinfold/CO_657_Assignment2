@@ -108,4 +108,4 @@ void onJoystickFirePressed()
     joystickFirePressed = true;
 }
 
-uint8_t ccittLookup(uint64_t packet);
+void generateCCITTChecksum(PACKET &packet);

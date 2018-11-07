@@ -1,6 +1,8 @@
 
 #include <main.h>
 
+bool useCCITT = true;
+
 int main()
 {
     connectEthernet(eth);
@@ -31,16 +33,25 @@ void sendTemperatureUpdate()
 
     if (packet.sequenceNumber % 10 == 0)
     {
-        setPacketOptions(packet, false, false, true);
+        setPacketOptions(packet, false, useCCITT, true);
     }
     else
     {
-        setPacketOptions(packet, false, false, false);
+        setPacketOptions(packet, false, useCCITT, false);
     }
     setTemperature(packet);
 
     setButtonPresses(packet);
-    generateChecksum(packet);
+    
+    if(useCCITT) {
+    
+        generateCCITTChecksum(packet);
+
+    } else {
+    
+        generateChecksum(packet);
+   
+    }
     uint64_t builtPacket = buildPacket(packet);
     sendPacket(eth, builtPacket);
     clearPressedButtons();
@@ -64,38 +75,59 @@ void setSequenceNumber(PACKET &packet)
     packet.sequenceNumber = sequenceNumber++;
 }
 
+
+
+
 void setPacketOptions(PACKET &packet, bool retryFlag, bool ccittFlag, bool ackRequestFlag)
 {
     uint8_t tempPacketOptions = 0;
+
     if (retryFlag)
         tempPacketOptions += 4;
+        
     if (ccittFlag)
         tempPacketOptions += 2;
+
     if (ackRequestFlag)
         tempPacketOptions += 1;
+
     packet.packetOptions = tempPacketOptions;
 }
+
+
+
+
 
 void setButtonPresses(PACKET &packet)
 {
     uint8_t buttonsPressed = 0;
+
     if (sw2Pressed)
         buttonsPressed += SW2_VAL;
+
     if (sw3Pressed)
         buttonsPressed += SW3_VAL;
+
     if (joystickUpPressed)
         buttonsPressed += JOYSTICK_DOWN_VAL;
+
     if (joystickDownPressed)
         buttonsPressed += JOYSTICK_UP_VAL;
+
     if (joystickLeftPressed)
         buttonsPressed += JOSYTICK_LEFT_VAL;
+
     if (joystickRightPressed)
         buttonsPressed += JOYSTICK_RIGHT_VAL;
+
     if (joystickFirePressed)
         buttonsPressed += JOYSTICK_FIRE_VAL;
 
     packet.buttonPresses = buttonsPressed;
 }
+
+
+
 
 void clearPressedButtons()
 {
@@ -108,6 +140,10 @@ void clearPressedButtons()
     joystickFirePressed = false;
 }
 
+
+
+
+
 void setTemperature(PACKET &packet)
 {
     uint16_t temperatureBigEndian = temperatureSensor.read();
@@ -115,17 +151,17 @@ void setTemperature(PACKET &packet)
 }
 
 void generateChecksum(PACKET &packet)
-{
+{   
     uint8_t packetList[7];
-    packetList[0] = packet.senderID >> 8;
-    packetList[1] = packet.senderID;
+    packetList[0] = packet.senderID;
+    packetList[1] = packet.senderID >> 8;
     packetList[2] = packet.sequenceNumber;
     packetList[3] = packet.packetOptions;
-    packetList[4] = packet.temperature >> 8;
-    packetList[6] = packet.temperature;
-    packetList[7] = packet.buttonPresses;
+    packetList[4] = packet.temperature;
+    packetList[5] = packet.temperature >> 8;
+    packetList[6] = packet.buttonPresses;
 
-    uint8_t checksum = (packetList[0] ^ packetList[1] ^ packetList[2] ^ packetList[3] ^ packetList[4] ^ packetList[5] ^ packetList[6] ^ packetList[7]);
+    uint8_t checksum = (packetList[0] ^ packetList[1] ^ packetList[2] ^ packetList[3] ^ packetList[4] ^ packetList[5] ^ packetList[6]);
 
     packet.checksum = checksum;
 }
@@ -140,26 +176,42 @@ void sendPacket(EthernetInterface eth, uint64_t packet)
 
 uint64_t buildPacket(PACKET packet)
 {
-
-    return (((packet.checksum & 0xFFFFFFFFFFFFFFFF) << 56) |
-            ((packet.buttonPresses & 0xFFFFFFFFFFFFFFFF) << 48) |
-            ((packet.temperature & 0xFFFFFFFFFFFFFFFF) << 32) |
-            ((packet.packetOptions & 0xFFFFFFFFFFFFFFFF) << 24) |
-            ((packet.sequenceNumber & 0xFFFFFFFFFFFFFFFF) << 16) |
-            (packet.senderID & 0xFFFFFFFFFFFFFFFF));
+    uint64_t padding = 0xFFFFFFFFFFFFFFFF;
+    return (((packet.checksum & padding) << 56) |
+            ((packet.buttonPresses & padding) << 48) |
+            ((packet.temperature & padding) << 32) |
+            ((packet.packetOptions & padding) << 24) |
+            ((packet.sequenceNumber & padding) << 16) |
+            (packet.senderID & padding));
 }
 
-uint8_t ccittLookup(uint64_t packet)
+void generateCCITTChecksum(PACKET &packet)
 {
-    uint8_t *packetPtr = (uint8_t *)packet;
-    uint8_t *index = (uint8_t *)packet;
     uint8_t checksum = 0;
+    uint8_t packetList[7];
 
-    while (index < (packetPtr + sizeof(packet)))
-    {
-        checksum = Table_CRC_8bit_CCITT[*index ^ checksum];
-        index++;
+    packetList[0] = packet.senderID;
+    packetList[1] = (packet.senderID >> 8);
+    packetList[2] = packet.sequenceNumber;
+    packetList[3] = packet.packetOptions;
+    packetList[4] = packet.temperature;
+    packetList[5] = (packet.temperature >> 8);
+    packetList[6] = packet.buttonPresses;
+
+    lcd.printf("%x", packetList[0]);
+    lcd.printf("%x", packetList[1]);
+    lcd.printf("%x", packetList[2]);
+    lcd.printf("%x", packetList[3]);
+    lcd.printf("%x", packetList[4]);
+    lcd.printf("%x", packetList[5]);
+    lcd.printf("%x", packetList[6]);
+
+
+    for(int i = 0; i < 7; i++) {
+        checksum = Table_CRC_8bit_CCITT[checksum ^ packetList[i]];
     }
 
-    return checksum;
+    lcd.printf("/n %x", checksum);
+
+    packet.checksum = checksum;
 }
