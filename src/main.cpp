@@ -2,6 +2,10 @@
 #include <main.h>
 
 bool useCCITT = true;
+bool retryflag = false;
+
+PACKET packet;
+SocketAddress socketAddress;
 
 int main()
 {
@@ -15,9 +19,13 @@ int main()
     joystickRight.fall(&onJoystickRightPressed);
     joystickFire.fall(&onJoystickFirePressed);
 
-    tickerThread.start(&tickerQueue, &EventQueue::dispatch_forever);
-    tickerQueue.call_every(10000, &sendTemperatureUpdate);
-    tickerQueue.dispatch();
+    temperaturePollingThread.start(&temperaturePollingQueue, &EventQueue::dispatch_forever);
+    temperaturePollingQueue.call_every(10000, &sendTemperatureUpdate);
+    temperaturePollingQueue.dispatch();
+
+    acknowlegmentThread.start(&acknowlegmentQueue, &EventQueue::dispatch_forever);
+    acknowlegmentQueue.call_every(1000, &setAcknowledgementFlag);
+    acknowlegmentQueue.dispatch();
 
     while (true)
     {
@@ -25,49 +33,91 @@ int main()
     }
 }
 
+void setAcknowledgementFlag() {
+    acknowledgeFlag = true;
+}
+
+
 void sendTemperatureUpdate()
 {
-    PACKET packet;
-    setSenderID(packet, 21486);
-    setSequenceNumber(packet);
-
-    if (packet.sequenceNumber % 10 == 0)
-    {
-        setPacketOptions(packet, false, useCCITT, true);
-    }
-    else
-    {
-        setPacketOptions(packet, false, useCCITT, false);
-    }
-    setTemperature(packet);
-
-    setButtonPresses(packet);
+    lcd.cls();
+    lcd.printf("ack flag = %d\n", acknowledgeFlag);
+    wait(2.0);
+    if(!retryflag) {
+         
+        setSenderID(21486);
     
-    if(useCCITT) {
-    
-        generateCCITTChecksum(packet);
+        setSequenceNumber();
 
-    } else {
+        setPacketOptions(retryflag, useCCITT, acknowledgeFlag);
+
+        setTemperature();
+
+        setButtonPresses();
     
-        generateChecksum(packet);
-   
+
+        if(useCCITT) {
+            generateCCITTChecksum();
+        } else {
+            generateChecksum();
+        }
+
+        if(acknowledgeFlag) {
+            watchAcknowledgement(sequenceNumber);
+        }
+
+        uint64_t builtPacket = buildPacket();
+        sendPacket(eth, builtPacket);
+        clearPressedButtons();
+    
+    }  else {
+
+        retry();
+    
     }
-    uint64_t builtPacket = buildPacket(packet);
-    sendPacket(eth, builtPacket);
-    clearPressedButtons();
 }
+
+
+void watchAcknowledgement(uint8_t sequenceNumber) {
+    UDPSocket sock(&eth);
+
+    uint32_t response;
+    
+    sock.recvfrom(&socketAddress, &response, sizeof(response));
+    
+    while(response = NULL) {
+        Thread::wait(10);
+    }
+}
+
+
+
+void retry () {
+
+    setPacketOptions(retryflag, useCCITT, acknowledgeFlag);
+    uint64_t builtPacket = buildPacket();
+    sendPacket(eth, builtPacket);
+
+}
+
 
 void connectEthernet(EthernetInterface eth)
 {
     eth.connect();
 }
 
-void setSenderID(PACKET &packet, uint16_t id)
+
+
+
+
+void setSenderID(uint16_t id)
 {
     packet.senderID = id;
 }
 
-void setSequenceNumber(PACKET &packet)
+
+
+void setSequenceNumber()
 {
     if (sequenceNumber >= 254)
         sequenceNumber = 0;
@@ -78,7 +128,7 @@ void setSequenceNumber(PACKET &packet)
 
 
 
-void setPacketOptions(PACKET &packet, bool retryFlag, bool ccittFlag, bool ackRequestFlag)
+void setPacketOptions(bool retryFlag, bool ccittFlag, bool ackRequestFlag)
 {
     uint8_t tempPacketOptions = 0;
 
@@ -98,7 +148,7 @@ void setPacketOptions(PACKET &packet, bool retryFlag, bool ccittFlag, bool ackRe
 
 
 
-void setButtonPresses(PACKET &packet)
+void setButtonPresses()
 {
     uint8_t buttonsPressed = 0;
 
@@ -144,13 +194,17 @@ void clearPressedButtons()
 
 
 
-void setTemperature(PACKET &packet)
+void setTemperature()
 {
     uint16_t temperatureBigEndian = temperatureSensor.read();
     packet.temperature = temperatureBigEndian;
 }
 
-void generateChecksum(PACKET &packet)
+
+
+
+
+void generateChecksum()
 {   
     uint8_t packetList[7];
     packetList[0] = packet.senderID;
@@ -166,15 +220,20 @@ void generateChecksum(PACKET &packet)
     packet.checksum = checksum;
 }
 
+
+
+
+
 void sendPacket(EthernetInterface eth, uint64_t packet)
 {
     UDPSocket sock(&eth);
-    SocketAddress sockAddr;
-
-    int status = sock.sendto("lora.kent.ac.uk", 1789, &packet, sizeof(uint64_t));
+    sock.sendto("lora.kent.ac.uk", 1789, &packet, sizeof(uint64_t));
 }
 
-uint64_t buildPacket(PACKET packet)
+
+
+
+uint64_t buildPacket()
 {
     uint64_t padding = 0xFFFFFFFFFFFFFFFF;
     return (((packet.checksum & padding) << 56) |
@@ -185,7 +244,10 @@ uint64_t buildPacket(PACKET packet)
             (packet.senderID & padding));
 }
 
-void generateCCITTChecksum(PACKET &packet)
+
+
+
+void generateCCITTChecksum()
 {
     uint8_t checksum = 0;
     uint8_t packetList[7];
@@ -198,20 +260,9 @@ void generateCCITTChecksum(PACKET &packet)
     packetList[5] = (packet.temperature >> 8);
     packetList[6] = packet.buttonPresses;
 
-    lcd.printf("%x", packetList[0]);
-    lcd.printf("%x", packetList[1]);
-    lcd.printf("%x", packetList[2]);
-    lcd.printf("%x", packetList[3]);
-    lcd.printf("%x", packetList[4]);
-    lcd.printf("%x", packetList[5]);
-    lcd.printf("%x", packetList[6]);
-
-
     for(int i = 0; i < 7; i++) {
         checksum = Table_CRC_8bit_CCITT[checksum ^ packetList[i]];
     }
-
-    lcd.printf("/n %x", checksum);
 
     packet.checksum = checksum;
 }

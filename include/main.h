@@ -13,8 +13,11 @@
 #define JOYSTICK_RIGHT_VAL 32
 #define JOYSTICK_FIRE_VAL 64
 
-Thread tickerThread;
-EventQueue tickerQueue(EVENTS_EVENT_SIZE);
+Thread temperaturePollingThread;
+EventQueue temperaturePollingQueue(EVENTS_EVENT_SIZE);
+
+Thread acknowlegmentThread;
+EventQueue  acknowlegmentQueue(EVENTS_EVENT_SIZE);
 
 C12832 lcd(D11, D13, D12, D7, D10);
 LM75B temperatureSensor(PTE25, PTE24);
@@ -30,6 +33,8 @@ InterruptIn joystickFire(D4);
 
 volatile uint8_t buttonsPressed = 0;
 volatile uint8_t sequenceNumber = 0;
+volatile bool acknowledgeFlag = false;
+
 
 bool sw2Pressed = false;
 bool sw3Pressed = false;
@@ -38,6 +43,7 @@ bool joystickDownPressed = false;
 bool joystickLeftPressed = false;
 bool joystickRightPressed = false;
 bool joystickFirePressed = false;
+
 
 struct PACKET
 {
@@ -55,21 +61,21 @@ void sendTemperatureUpdate();
 
 void sendPacket(EthernetInterface eth, uint64_t packet);
 
-void setSenderID(PACKET &packet, uint16_t id);
+void setSenderID(uint16_t id);
 
-void setSequenceNumber(PACKET &packet);
+void setSequenceNumber();
 
-void setPacketOptions(PACKET &packet, bool retryFlag, bool ccittFlag, bool ackRequestFlag);
+void setPacketOptions( bool retryFlag, bool ccittFlag, bool ackRequestFlag);
 
-void setButtonPresses(PACKET &packet);
+void setButtonPresses();
 
-void setTemperature(PACKET &packet);
+void setTemperature();
 
-void generateChecksum(PACKET &packet);
+void generateChecksum();
 
 void connectEthernet(EthernetInterface eth);
 
-uint64_t buildPacket(PACKET packet);
+uint64_t buildPacket();
 
 void clearPressedButtons();
 
@@ -108,4 +114,10 @@ void onJoystickFirePressed()
     joystickFirePressed = true;
 }
 
-void generateCCITTChecksum(PACKET &packet);
+void generateCCITTChecksum();
+
+void setAcknowledgementFlag();
+
+void retry ();
+
+void watchAcknowledgement(uint8_t sequenceNumber);
